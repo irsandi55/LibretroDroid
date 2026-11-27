@@ -67,6 +67,9 @@ public:
     void setCheat(unsigned index, bool enabled, const std::string& code);
     void resetCheat();
 
+    std::vector<MemoryRegionInfo> getMemoryRegions();
+    std::vector<uint8_t> readMemoryRegion(unsigned index, size_t offset, size_t length);
+
     std::pair<int8_t*, size_t> serializeState();
     bool unserializeState(int8_t *data, size_t size);
 
