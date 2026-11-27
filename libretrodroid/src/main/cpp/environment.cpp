@@ -40,6 +40,9 @@ void Environment::initialize(
     callback_get_current_framebuffer = required_callback_get_current_framebuffer;
     systemDirectory = requiredSystemDirectory;
     savesDirectory = requiredSavesDirectory;
+
+    std::lock_guard<std::mutex> lock(memoryMapMutex);
+    memoryRegions.clear();
 }
 
 void Environment::deinitialize() {
