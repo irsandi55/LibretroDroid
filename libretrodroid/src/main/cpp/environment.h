@@ -27,10 +27,21 @@
 #include <EGL/egl.h>
 #include <unordered_map>
 #include <array>
+#include <mutex>
+#include <cstdint>
 
 #include "../../libretro-common/include/libretro.h"
 #include "log.h"
 #include "rumblestate.h"
+
+struct MemoryRegionInfo {
+    void* pointer = nullptr;
+    size_t offset = 0;
+    uintptr_t start = 0;
+    size_t length = 0;
+    uint64_t flags = 0;
+    std::string addressSpace;
+};
 
 class Environment {
 public:
@@ -66,6 +77,10 @@ public:
     );
 
     void deinitialize();
+
+    void setMemoryMaps(const struct retro_memory_map* memoryMap);
+    std::vector<MemoryRegionInfo> getMemoryRegions() const;
+    std::vector<uint8_t> readMemoryRegion(unsigned index, size_t offset, size_t length) const;
 
     void updateVariable(const std::string &key, const std::string &value);
 
@@ -148,6 +163,9 @@ private:
     bool dirtyVariables = false;
 
     std::vector<std::vector<struct Controller>> controllers;
+
+    mutable std::mutex memoryMapMutex;
+    std::vector<MemoryRegionInfo> memoryRegions;
 };
 
 struct Variable {
