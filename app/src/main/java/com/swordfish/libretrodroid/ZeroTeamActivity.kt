@@ -2,20 +2,22 @@ package com.swordfish.libretrodroid
 
 import android.content.pm.ActivityInfo
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
-import android.view.Window
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.android.libretrodroid.R
 import java.io.File
@@ -24,6 +26,27 @@ import java.util.zip.ZipFile
 
 class ZeroTeamActivity : AppCompatActivity() {
     private var retroView: GLRetroView? = null
+    private var isEditingControls = false
+    private var controlScale = 1.0f
+    private var controlOpacity = 0.88f
+    private var controlGroups: List<ControlGroup> = emptyList()
+    private lateinit var controlsSettingsButton: Button
+    private val controlPrefs by lazy {
+        getSharedPreferences("zero_team_controls", MODE_PRIVATE)
+    }
+
+    private data class ControlGroup(
+        val container: FrameLayout,
+        val content: View,
+        val dragLayer: View,
+        val preferenceKey: String,
+        val defaultGravity: Int,
+        val defaultLeftMargin: Int,
+        val defaultRightMargin: Int,
+        val defaultBottomMargin: Int,
+        var dragOffsetX: Float = 0f,
+        var dragOffsetY: Float = 0f
+    )
 
     private val romPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -183,7 +206,10 @@ class ZeroTeamActivity : AppCompatActivity() {
             preferLowLatencyAudio = true
         }
 
-        val root = FrameLayout(this)
+        val root = FrameLayout(this).apply {
+            clipChildren = false
+            clipToPadding = false
+        }
         val game = GLRetroView(this, data)
         retroView = game
 
@@ -194,8 +220,11 @@ class ZeroTeamActivity : AppCompatActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
         )
+
         addTouchControls(root, game)
+        addControlsSettingsButton(root)
         setContentView(root)
+        applyControlPreferences(root)
         lifecycle.addObserver(game)
     }
 
@@ -214,16 +243,14 @@ class ZeroTeamActivity : AppCompatActivity() {
         middleRow.addView(controlButton("RIGHT", KeyEvent.KEYCODE_DPAD_RIGHT, game))
         dpad.addView(middleRow)
 
-        root.addView(
-            dpad,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.START or Gravity.BOTTOM
-            ).apply {
-                leftMargin = dp(16)
-                bottomMargin = dp(14)
-            }
+        val dpadGroup = addControlGroup(
+            root = root,
+            content = dpad,
+            key = "dpad",
+            gravity = Gravity.START or Gravity.BOTTOM,
+            leftMarginDp = 16,
+            rightMarginDp = 0,
+            bottomMarginDp = 14
         )
 
         val actionPanel = LinearLayout(this).apply {
@@ -248,17 +275,338 @@ class ZeroTeamActivity : AppCompatActivity() {
         actionPanel.addView(actionTop)
         actionPanel.addView(actionBottom)
 
+        val actionGroup = addControlGroup(
+            root = root,
+            content = actionPanel,
+            key = "actions",
+            gravity = Gravity.END or Gravity.BOTTOM,
+            leftMarginDp = 0,
+            rightMarginDp = 16,
+            bottomMarginDp = 14
+        )
+
+        controlGroups = listOf(dpadGroup, actionGroup)
+    }
+
+    private fun addControlGroup(
+        root: FrameLayout,
+        content: View,
+        key: String,
+        gravity: Int,
+        leftMarginDp: Int,
+        rightMarginDp: Int,
+        bottomMarginDp: Int
+    ): ControlGroup {
+        val container = FrameLayout(this).apply {
+            clipChildren = false
+            clipToPadding = false
+        }
+        container.addView(
+            content,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        val dragLayer = View(this).apply {
+            visibility = View.GONE
+            isClickable = true
+            background = GradientDrawable().apply {
+                setColor(Color.argb(45, 255, 214, 64))
+                setStroke(dp(2), Color.rgb(255, 214, 64))
+                cornerRadius = dp(8).toFloat()
+            }
+        }
+        container.addView(
+            dragLayer,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+
+        val left = dp(leftMarginDp)
+        val right = dp(rightMarginDp)
+        val bottom = dp(bottomMarginDp)
         root.addView(
-            actionPanel,
+            container,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.END or Gravity.BOTTOM
+                gravity
             ).apply {
-                rightMargin = dp(16)
-                bottomMargin = dp(14)
+                leftMargin = left
+                rightMargin = right
+                bottomMargin = bottom
             }
         )
+
+        val group = ControlGroup(
+            container = container,
+            content = content,
+            dragLayer = dragLayer,
+            preferenceKey = key,
+            defaultGravity = gravity,
+            defaultLeftMargin = left,
+            defaultRightMargin = right,
+            defaultBottomMargin = bottom
+        )
+        dragLayer.setOnTouchListener { _, event ->
+            handleControlDrag(root, group, event)
+        }
+        return group
+    }
+
+    private fun addControlsSettingsButton(root: FrameLayout) {
+        controlsSettingsButton = Button(this).apply {
+            text = "SET"
+            isAllCaps = false
+            textSize = 10f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.argb(190, 35, 40, 48))
+            minWidth = dp(48)
+            minHeight = dp(38)
+            setPadding(dp(5), 0, dp(5), 0)
+            setOnClickListener {
+                if (isEditingControls) {
+                    setControlEditMode(false)
+                } else {
+                    showControlSettings()
+                }
+            }
+        }
+        root.addView(
+            controlsSettingsButton,
+            FrameLayout.LayoutParams(
+                dp(52),
+                dp(40),
+                Gravity.TOP or Gravity.END
+            ).apply {
+                topMargin = dp(8)
+                rightMargin = dp(10)
+            }
+        )
+    }
+
+    private fun applyControlPreferences(root: FrameLayout) {
+        controlScale = controlPrefs.getFloat("scale", 1.0f).coerceIn(0.65f, 1.30f)
+        controlOpacity = controlPrefs.getFloat("opacity", 0.88f).coerceIn(0.25f, 1.0f)
+        controlGroups.forEach { group ->
+            group.container.scaleX = controlScale
+            group.container.scaleY = controlScale
+            group.content.alpha = controlOpacity
+        }
+
+        root.post {
+            controlGroups.forEach { group ->
+                val xKey = "${group.preferenceKey}_x"
+                val yKey = "${group.preferenceKey}_y"
+                if (controlPrefs.contains(xKey) && controlPrefs.contains(yKey)) {
+                    val maxX = (root.width - group.container.width).coerceAtLeast(0)
+                    val maxY = (root.height - group.container.height).coerceAtLeast(0)
+                    val x = (controlPrefs.getFloat(xKey, 0f) * maxX).toInt()
+                    val y = (controlPrefs.getFloat(yKey, 0f) * maxY).toInt()
+                    moveGroupTo(group, x, y)
+                }
+            }
+        }
+    }
+
+    private fun handleControlDrag(
+        root: FrameLayout,
+        group: ControlGroup,
+        event: MotionEvent
+    ): Boolean {
+        if (!isEditingControls) return false
+        val location = IntArray(2)
+        root.getLocationOnScreen(location)
+
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                group.dragOffsetX = event.rawX - location[0] - group.container.x
+                group.dragOffsetY = event.rawY - location[1] - group.container.y
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val maxX = (root.width - group.container.width).coerceAtLeast(0)
+                val maxY = (root.height - group.container.height).coerceAtLeast(0)
+                val x = (event.rawX - location[0] - group.dragOffsetX)
+                    .toInt().coerceIn(0, maxX)
+                val y = (event.rawY - location[1] - group.dragOffsetY)
+                    .toInt().coerceIn(0, maxY)
+                moveGroupTo(group, x, y)
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                saveGroupPosition(root, group)
+                return true
+            }
+        }
+        return true
+    }
+
+    private fun moveGroupTo(group: ControlGroup, x: Int, y: Int) {
+        val params = group.container.layoutParams as FrameLayout.LayoutParams
+        params.gravity = Gravity.TOP or Gravity.START
+        params.leftMargin = x
+        params.topMargin = y
+        params.rightMargin = 0
+        params.bottomMargin = 0
+        group.container.layoutParams = params
+    }
+
+    private fun saveGroupPosition(root: FrameLayout, group: ControlGroup) {
+        val maxX = (root.width - group.container.width).coerceAtLeast(1)
+        val maxY = (root.height - group.container.height).coerceAtLeast(1)
+        val params = group.container.layoutParams as FrameLayout.LayoutParams
+        controlPrefs.edit()
+            .putFloat("${group.preferenceKey}_x", params.leftMargin.toFloat() / maxX)
+            .putFloat("${group.preferenceKey}_y", params.topMargin.toFloat() / maxY)
+            .apply()
+    }
+
+    private fun showControlSettings() {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(4))
+        }
+
+        val heading = TextView(this).apply {
+            text = "Atur tombol permainan"
+            textSize = 18f
+            setTextColor(Color.BLACK)
+        }
+        val help = TextView(this).apply {
+            text = "Ubah ukuran dan transparansi. Untuk memindahkan kelompok tombol, pilih Atur posisi."
+            textSize = 13f
+            setTextColor(Color.DKGRAY)
+            setPadding(0, dp(6), 0, dp(12))
+        }
+        panel.addView(heading)
+        panel.addView(help)
+
+        val sizeLabel = TextView(this).apply {
+            text = "Ukuran tombol: ${(controlScale * 100).toInt()}%"
+            setTextColor(Color.BLACK)
+        }
+        val sizeSeek = SeekBar(this).apply {
+            max = 130
+            progress = (controlScale * 100).toInt().coerceIn(65, 130)
+        }
+        panel.addView(sizeLabel)
+        panel.addView(sizeSeek)
+
+        val opacityLabel = TextView(this).apply {
+            text = "Transparansi: ${(controlOpacity * 100).toInt()}%"
+            setTextColor(Color.BLACK)
+            setPadding(0, dp(10), 0, 0)
+        }
+        val opacitySeek = SeekBar(this).apply {
+            max = 100
+            progress = (controlOpacity * 100).toInt().coerceIn(25, 100)
+        }
+        panel.addView(opacityLabel)
+        panel.addView(opacitySeek)
+
+        val editButton = Button(this).apply {
+            text = "ATUR POSISI TOMBOL"
+            setOnClickListener {
+                setControlEditMode(true)
+            }
+        }
+        val resetButton = Button(this).apply {
+            text = "RESET TATA LETAK"
+            setOnClickListener {
+                resetControlLayout()
+            }
+        }
+        panel.addView(editButton)
+        panel.addView(resetButton)
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(panel)
+            .setNegativeButton("TUTUP", null)
+            .create()
+
+        sizeSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                controlScale = progress.coerceIn(65, 130) / 100f
+                sizeLabel.text = "Ukuran tombol: ${(controlScale * 100).toInt()}%"
+                applyControlScale()
+                controlPrefs.edit().putFloat("scale", controlScale).apply()
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+
+        opacitySeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                controlOpacity = progress.coerceIn(25, 100) / 100f
+                opacityLabel.text = "Transparansi: ${(controlOpacity * 100).toInt()}%"
+                applyControlOpacity()
+                controlPrefs.edit().putFloat("opacity", controlOpacity).apply()
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+
+        editButton.setOnClickListener {
+            dialog.dismiss()
+            setControlEditMode(true)
+        }
+        resetButton.setOnClickListener {
+            resetControlLayout()
+            dialog.dismiss()
+        }
+
+        dialog.show()
+    }
+
+    private fun applyControlScale() {
+        controlGroups.forEach { group ->
+            group.container.scaleX = controlScale
+            group.container.scaleY = controlScale
+        }
+    }
+
+    private fun applyControlOpacity() {
+        controlGroups.forEach { group ->
+            group.content.alpha = controlOpacity
+        }
+    }
+
+    private fun setControlEditMode(enabled: Boolean) {
+        isEditingControls = enabled
+        controlGroups.forEach { group ->
+            group.dragLayer.visibility = if (enabled) View.VISIBLE else View.GONE
+        }
+        controlsSettingsButton.text = if (enabled) "SIMPAN" else "SET"
+        Toast.makeText(
+            this,
+            if (enabled) "Geser kotak kuning untuk memindahkan tombol. Tekan SIMPAN setelah selesai."
+            else "Posisi tombol disimpan.",
+            Toast.LENGTH_LONG
+        ).show()
+    }
+
+    private fun resetControlLayout() {
+        controlPrefs.edit().clear().apply()
+        controlScale = 1.0f
+        controlOpacity = 0.88f
+        controlGroups.forEach { group ->
+            group.container.scaleX = controlScale
+            group.container.scaleY = controlScale
+            group.content.alpha = controlOpacity
+            val params = group.container.layoutParams as FrameLayout.LayoutParams
+            params.gravity = group.defaultGravity
+            params.leftMargin = group.defaultLeftMargin
+            params.rightMargin = group.defaultRightMargin
+            params.topMargin = 0
+            params.bottomMargin = group.defaultBottomMargin
+            group.container.layoutParams = params
+        }
+        Toast.makeText(this, "Tata letak tombol dikembalikan.", Toast.LENGTH_SHORT).show()
     }
 
     private fun controlButton(
