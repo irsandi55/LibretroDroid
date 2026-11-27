@@ -314,11 +314,10 @@ class ZeroTeamActivity : AppCompatActivity() {
         val dragHandle = TextView(this).apply {
             text = "GESER POSISI"
             textSize = 10f
-            gravity = Gravity.CENTER
+            setGravity(Gravity.CENTER)
             setTextColor(Color.BLACK)
             isClickable = true
             visibility = View.GONE
-            elevation = dp(20).toFloat()
             background = GradientDrawable().apply {
                 setColor(Color.rgb(255, 214, 64))
                 setStroke(dp(2), Color.WHITE)
