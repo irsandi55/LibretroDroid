@@ -162,6 +162,23 @@ class GLRetroView(
         return PointF(x, y)
     }
 
+    fun getMemoryRegions(useEmulationThread: Boolean = true): LongArray {
+        return runOnEmulationThread(useEmulationThread) {
+            LibretroDroid.getMemoryRegions()
+        }
+    }
+
+    fun readMemoryRegion(
+        regionIndex: Int,
+        offset: Long,
+        length: Long,
+        useEmulationThread: Boolean = true,
+    ): ByteArray {
+        return runOnEmulationThread(useEmulationThread) {
+            LibretroDroid.readMemoryRegion(regionIndex, offset, length)
+        }
+    }
+
     fun serializeState(useEmulationThread: Boolean = true): ByteArray {
         return runOnEmulationThread(useEmulationThread) {
             LibretroDroid.serializeState()
