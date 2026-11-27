@@ -211,6 +211,69 @@ JNIEXPORT jbyteArray JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_seri
     return nullptr;
 }
 
+JNIEXPORT jlongArray JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_getMemoryRegions(
+    JNIEnv* env,
+    jclass obj
+) {
+    try {
+        const auto regions = LibretroDroid::getInstance().getMemoryRegions();
+        std::vector<jlong> packed;
+        packed.reserve(regions.size() * 3);
+
+        for (const auto& region : regions) {
+            packed.push_back(static_cast<jlong>(region.start));
+            packed.push_back(static_cast<jlong>(region.length));
+            packed.push_back(static_cast<jlong>(region.flags));
+        }
+
+        jlongArray result = env->NewLongArray(static_cast<jsize>(packed.size()));
+        if (result != nullptr && !packed.empty()) {
+            env->SetLongArrayRegion(result, 0, static_cast<jsize>(packed.size()), packed.data());
+        }
+        return result;
+    } catch (std::exception &exception) {
+        LOGE("Error in getMemoryRegions: %s", exception.what());
+        return env->NewLongArray(0);
+    }
+}
+
+JNIEXPORT jbyteArray JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_readMemoryRegion(
+    JNIEnv* env,
+    jclass obj,
+    jint regionIndex,
+    jlong offset,
+    jlong length
+) {
+    if (regionIndex < 0 || offset < 0 || length < 0 || length > 16 * 1024 * 1024) {
+        return env->NewByteArray(0);
+    }
+
+    try {
+        const auto bytes = LibretroDroid::getInstance().readMemoryRegion(
+            static_cast<unsigned>(regionIndex),
+            static_cast<size_t>(offset),
+            static_cast<size_t>(length)
+        );
+        if (bytes.size() != static_cast<size_t>(length)) {
+            return env->NewByteArray(0);
+        }
+
+        jbyteArray result = env->NewByteArray(static_cast<jsize>(bytes.size()));
+        if (result != nullptr && !bytes.empty()) {
+            env->SetByteArrayRegion(
+                result,
+                0,
+                static_cast<jsize>(bytes.size()),
+                reinterpret_cast<const jbyte*>(bytes.data())
+            );
+        }
+        return result;
+    } catch (std::exception &exception) {
+        LOGE("Error in readMemoryRegion: %s", exception.what());
+        return env->NewByteArray(0);
+    }
+}
+
 JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_setCheat(
     JNIEnv* env,
     jclass obj,
