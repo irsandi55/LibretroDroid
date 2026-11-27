@@ -66,6 +66,56 @@ void Environment::deinitialize() {
     gameGeometryAspectRatio = -1.0f;
 
     rumbleStates.fill(libretrodroid::RumbleState {});
+
+    std::lock_guard<std::mutex> lock(memoryMapMutex);
+    memoryRegions.clear();
+}
+
+void Environment::setMemoryMaps(const struct retro_memory_map* memoryMap) {
+    std::lock_guard<std::mutex> lock(memoryMapMutex);
+    memoryRegions.clear();
+
+    if (memoryMap == nullptr || memoryMap->descriptors == nullptr) {
+        return;
+    }
+
+    for (unsigned i = 0; i < memoryMap->num_descriptors; ++i) {
+        const auto& descriptor = memoryMap->descriptors[i];
+        if (descriptor.ptr == nullptr || descriptor.len == 0) {
+            continue;
+        }
+
+        MemoryRegionInfo region;
+        region.pointer = descriptor.ptr;
+        region.offset = descriptor.offset;
+        region.start = descriptor.start;
+        region.length = descriptor.len;
+        region.flags = descriptor.flags;
+        if (descriptor.addrspace != nullptr) {
+            region.addressSpace = descriptor.addrspace;
+        }
+        memoryRegions.push_back(std::move(region));
+    }
+}
+
+std::vector<MemoryRegionInfo> Environment::getMemoryRegions() const {
+    std::lock_guard<std::mutex> lock(memoryMapMutex);
+    return memoryRegions;
+}
+
+std::vector<uint8_t> Environment::readMemoryRegion(unsigned index, size_t offset, size_t length) const {
+    std::lock_guard<std::mutex> lock(memoryMapMutex);
+    if (index >= memoryRegions.size()) {
+        return {};
+    }
+
+    const auto& region = memoryRegions[index];
+    if (offset > region.length || length > region.length - offset || length > 16 * 1024 * 1024) {
+        return {};
+    }
+
+    const auto* source = static_cast<const uint8_t*>(region.pointer) + region.offset + offset;
+    return std::vector<uint8_t>(source, source + length);
 }
 
 void Environment::updateVariable(const std::string& key, const std::string& value) {
@@ -228,6 +278,11 @@ bool Environment::handle_callback_environment(unsigned cmd, void *data) {
     switch (cmd) {
         case RETRO_ENVIRONMENT_GET_CAN_DUPE:
             *((bool*) data) = true;
+            return true;
+
+        case RETRO_ENVIRONMENT_SET_MEMORY_MAPS:
+            LOGD("Called RETRO_ENVIRONMENT_SET_MEMORY_MAPS");
+            setMemoryMaps(static_cast<const struct retro_memory_map*>(data));
             return true;
 
         case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: {
