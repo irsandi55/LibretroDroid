@@ -38,7 +38,7 @@ class ZeroTeamActivity : AppCompatActivity() {
     private data class ControlGroup(
         val container: FrameLayout,
         val content: View,
-        val dragLayer: View,
+        val dragHandle: TextView,
         val preferenceKey: String,
         val defaultGravity: Int,
         val defaultLeftMargin: Int,
@@ -309,21 +309,33 @@ class ZeroTeamActivity : AppCompatActivity() {
             )
         )
 
-        val dragLayer = View(this).apply {
-            visibility = View.GONE
+        // A dedicated visible drag handle is more reliable than placing a
+        // transparent touch layer over the entire controller.
+        val dragHandle = TextView(this).apply {
+            text = "GESER POSISI"
+            textSize = 10f
+            gravity = Gravity.CENTER
+            setTextColor(Color.BLACK)
             isClickable = true
+            visibility = View.GONE
+            elevation = dp(20).toFloat()
             background = GradientDrawable().apply {
-                setColor(Color.argb(45, 255, 214, 64))
-                setStroke(dp(2), Color.rgb(255, 214, 64))
-                cornerRadius = dp(8).toFloat()
+                setColor(Color.rgb(255, 214, 64))
+                setStroke(dp(2), Color.WHITE)
+                cornerRadius = dp(7).toFloat()
             }
         }
         container.addView(
-            dragLayer,
+            dragHandle,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
+                dp(38),
+                Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            ).apply {
+                leftMargin = dp(4)
+                rightMargin = dp(4)
+                topMargin = dp(4)
+            }
         )
 
         val left = dp(leftMarginDp)
@@ -345,14 +357,14 @@ class ZeroTeamActivity : AppCompatActivity() {
         val group = ControlGroup(
             container = container,
             content = content,
-            dragLayer = dragLayer,
+            dragHandle = dragHandle,
             preferenceKey = key,
             defaultGravity = gravity,
             defaultLeftMargin = left,
             defaultRightMargin = right,
             defaultBottomMargin = bottom
         )
-        dragLayer.setOnTouchListener { _, event ->
+        dragHandle.setOnTouchListener { _, event ->
             handleControlDrag(root, group, event)
         }
         return group
@@ -393,8 +405,8 @@ class ZeroTeamActivity : AppCompatActivity() {
         controlScale = controlPrefs.getFloat("scale", 1.0f).coerceIn(0.65f, 1.30f)
         controlOpacity = controlPrefs.getFloat("opacity", 0.88f).coerceIn(0.25f, 1.0f)
         controlGroups.forEach { group ->
-            group.container.scaleX = controlScale
-            group.container.scaleY = controlScale
+            group.content.scaleX = controlScale
+            group.content.scaleY = controlScale
             group.content.alpha = controlOpacity
         }
 
@@ -419,27 +431,31 @@ class ZeroTeamActivity : AppCompatActivity() {
         event: MotionEvent
     ): Boolean {
         if (!isEditingControls) return false
-        val location = IntArray(2)
-        root.getLocationOnScreen(location)
+        val rootLocation = IntArray(2)
+        root.getLocationOnScreen(rootLocation)
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                group.dragOffsetX = event.rawX - location[0] - group.container.x
-                group.dragOffsetY = event.rawY - location[1] - group.container.y
+                val groupLocation = IntArray(2)
+                group.container.getLocationOnScreen(groupLocation)
+                group.dragOffsetX = event.rawX - groupLocation[0]
+                group.dragOffsetY = event.rawY - groupLocation[1]
+                root.requestDisallowInterceptTouchEvent(true)
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
                 val maxX = (root.width - group.container.width).coerceAtLeast(0)
                 val maxY = (root.height - group.container.height).coerceAtLeast(0)
-                val x = (event.rawX - location[0] - group.dragOffsetX)
+                val x = (event.rawX - rootLocation[0] - group.dragOffsetX)
                     .toInt().coerceIn(0, maxX)
-                val y = (event.rawY - location[1] - group.dragOffsetY)
+                val y = (event.rawY - rootLocation[1] - group.dragOffsetY)
                     .toInt().coerceIn(0, maxY)
                 moveGroupTo(group, x, y)
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 saveGroupPosition(root, group)
+                root.requestDisallowInterceptTouchEvent(false)
                 return true
             }
         }
@@ -565,8 +581,8 @@ class ZeroTeamActivity : AppCompatActivity() {
 
     private fun applyControlScale() {
         controlGroups.forEach { group ->
-            group.container.scaleX = controlScale
-            group.container.scaleY = controlScale
+            group.content.scaleX = controlScale
+            group.content.scaleY = controlScale
         }
     }
 
@@ -579,8 +595,10 @@ class ZeroTeamActivity : AppCompatActivity() {
     private fun setControlEditMode(enabled: Boolean) {
         isEditingControls = enabled
         controlGroups.forEach { group ->
-            group.dragLayer.visibility = if (enabled) View.VISIBLE else View.GONE
+            group.dragHandle.visibility = if (enabled) View.VISIBLE else View.GONE
+            if (enabled) group.container.bringToFront()
         }
+        if (enabled) controlsSettingsButton.bringToFront()
         controlsSettingsButton.text = if (enabled) "SIMPAN" else "SET"
         Toast.makeText(
             this,
@@ -595,8 +613,8 @@ class ZeroTeamActivity : AppCompatActivity() {
         controlScale = 1.0f
         controlOpacity = 0.88f
         controlGroups.forEach { group ->
-            group.container.scaleX = controlScale
-            group.container.scaleY = controlScale
+            group.content.scaleX = controlScale
+            group.content.scaleY = controlScale
             group.content.alpha = controlOpacity
             val params = group.container.layoutParams as FrameLayout.LayoutParams
             params.gravity = group.defaultGravity
