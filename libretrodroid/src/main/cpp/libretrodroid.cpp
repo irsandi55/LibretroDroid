@@ -581,6 +581,16 @@ std::pair<int8_t*, size_t> LibretroDroid::serializeState() {
     return std::pair(data, size);
 }
 
+std::vector<MemoryRegionInfo> LibretroDroid::getMemoryRegions() {
+    std::lock_guard<std::mutex> lock(coreLock);
+    return Environment::getInstance().getMemoryRegions();
+}
+
+std::vector<uint8_t> LibretroDroid::readMemoryRegion(unsigned index, size_t offset, size_t length) {
+    std::lock_guard<std::mutex> lock(coreLock);
+    return Environment::getInstance().readMemoryRegion(index, offset, length);
+}
+
 void LibretroDroid::resetCheat() {
     std::lock_guard<std::mutex> lock(coreLock);
 
