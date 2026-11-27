@@ -122,6 +122,10 @@ public class LibretroDroid {
     public static native void setCheat(int index, boolean enable, String code);
     public static native void resetCheat();
 
+    // Returns region triplets: start address, byte length, and libretro flags.
+    public static native long[] getMemoryRegions();
+    public static native byte[] readMemoryRegion(int regionIndex, long offset, long length);
+
     public static native byte[] serializeSRAM();
     public static native boolean unserializeSRAM(byte[] sram);
 
