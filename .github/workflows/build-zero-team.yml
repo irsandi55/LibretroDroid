@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout source and submodules
         uses: actions/checkout@v4
@@ -24,12 +24,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Accept Android SDK licenses
-        shell: bash
-        run: |
-          set +o pipefail
-          yes | sdkmanager --licenses
-          set -o pipefail
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
 
       - name: Install Android native build tools
         run: |
