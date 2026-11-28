@@ -83,6 +83,7 @@ class GLRetroView(
     private val rumbleEventsSubject = MutableSharedFlow<RumbleEvent>()
 
     private var lifecycle: Lifecycle? = null
+    private var renderLifecycleObserver: RenderLifecycleObserver? = null
 
     init {
         openGLESVersion = getGLESVersion(context)
@@ -116,6 +117,8 @@ class GLRetroView(
 
     @OnLifecycleEvent(Lifecycle.Event.ON_DESTROY)
     fun onDestroy() = catchExceptions {
+        renderLifecycleObserver?.let { lifecycle?.removeObserver(it) }
+        renderLifecycleObserver = null
         LibretroDroid.destroy()
         lifecycle = null
     }
@@ -160,6 +163,26 @@ class GLRetroView(
         val x = clamp(2f * x / width - 1f, -1f, +1f)
         val y = clamp(2f * y / height - 1f, -1f, +1f)
         return PointF(x, y)
+    }
+
+    fun serializeStateToFile(
+        filePath: String,
+        useEmulationThread: Boolean = true
+    ): Boolean {
+        return runOnEmulationThread(useEmulationThread) {
+            check(isGameLoaded && isEmulationReady) { "Game is not ready for save state" }
+            LibretroDroid.serializeStateToFile(filePath)
+        }
+    }
+
+    fun unserializeStateFromFile(
+        filePath: String,
+        useEmulationThread: Boolean = true
+    ): Boolean {
+        return runOnEmulationThread(useEmulationThread) {
+            check(isGameLoaded && isEmulationReady) { "Game is not ready for load state" }
+            LibretroDroid.unserializeStateFromFile(filePath)
+        }
     }
 
     fun serializeState(useEmulationThread: Boolean = true): ByteArray {
@@ -356,7 +379,9 @@ class GLRetroView(
         isGameLoaded = true
 
         KtUtils.runOnUIThread {
-            lifecycle?.addObserver(RenderLifecycleObserver())
+            val observer = RenderLifecycleObserver()
+            renderLifecycleObserver = observer
+            lifecycle?.addObserver(observer)
         }
     }
 
