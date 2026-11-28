@@ -23,6 +23,7 @@
 #include <utility>
 #include <vector>
 #include <unordered_set>
+#include <cstdint>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
