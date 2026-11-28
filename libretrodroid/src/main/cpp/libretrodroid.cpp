@@ -23,6 +23,11 @@
 #include <utility>
 #include <vector>
 #include <unordered_set>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include "libretrodroid.h"
 #include "utils/libretrodroidexception.h"
@@ -148,6 +153,108 @@ bool LibretroDroid::unserializeState(int8_t *data, size_t size) {
     std::lock_guard<std::mutex> lock(coreLock);
 
     return core->retro_unserialize(data, size);
+}
+
+bool LibretroDroid::serializeStateToFile(const std::string& filePath) {
+    std::lock_guard<std::mutex> lock(coreLock);
+
+    if (!core) {
+        LOGE("Cannot save state: libretro core is not initialized");
+        return false;
+    }
+
+    constexpr size_t maxStateSize = 128U * 1024U * 1024U;
+    const size_t size = core->retro_serialize_size();
+    if (size == 0 || size > maxStateSize) {
+        LOGE("Cannot save state: invalid state size %zu", size);
+        return false;
+    }
+
+    const int fd = open(filePath.c_str(), O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+    if (fd < 0) {
+        LOGE("Cannot open save-state file");
+        return false;
+    }
+
+    bool success = false;
+    if (ftruncate(fd, static_cast<off_t>(size)) != 0) {
+        LOGE("Cannot allocate save-state file");
+        close(fd);
+        unlink(filePath.c_str());
+        return false;
+    }
+
+    void* mapped = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (mapped == MAP_FAILED) {
+        LOGE("Cannot map save-state file");
+        close(fd);
+        unlink(filePath.c_str());
+        return false;
+    }
+
+    success = core->retro_serialize(mapped, size);
+    if (success && msync(mapped, size, MS_SYNC) != 0) {
+        LOGE("Cannot flush save-state data");
+        success = false;
+    }
+    if (munmap(mapped, size) != 0) {
+        LOGE("Cannot unmap save-state file");
+        success = false;
+    }
+    if (success && fsync(fd) != 0) {
+        LOGE("Cannot sync save-state file");
+        success = false;
+    }
+
+    close(fd);
+    if (!success) {
+        unlink(filePath.c_str());
+        LOGE("FBNeo failed to write save-state data");
+    } else {
+        LOGD("FBNeo save state written: %zu bytes", size);
+    }
+    return success;
+}
+
+bool LibretroDroid::unserializeStateFromFile(const std::string& filePath) {
+    std::lock_guard<std::mutex> lock(coreLock);
+
+    if (!core) {
+        LOGE("Cannot load state: libretro core is not initialized");
+        return false;
+    }
+
+    constexpr size_t maxStateSize = 128U * 1024U * 1024U;
+    const int fd = open(filePath.c_str(), O_RDONLY);
+    if (fd < 0) {
+        LOGE("Cannot open save-state file for loading");
+        return false;
+    }
+
+    struct stat fileInfo {};
+    if (fstat(fd, &fileInfo) != 0 || fileInfo.st_size <= 0 ||
+        static_cast<uint64_t>(fileInfo.st_size) > maxStateSize) {
+        LOGE("Cannot load state: invalid file size");
+        close(fd);
+        return false;
+    }
+
+    const size_t size = static_cast<size_t>(fileInfo.st_size);
+    void* mapped = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (mapped == MAP_FAILED) {
+        LOGE("Cannot map save-state file for loading");
+        close(fd);
+        return false;
+    }
+
+    const bool loaded = core->retro_unserialize(mapped, size);
+    munmap(mapped, size);
+    close(fd);
+
+    if (!loaded) {
+        LOGE("FBNeo rejected save-state file");
+    }
+    return loaded;
 }
 
 JNIEXPORT jboolean JNICALL LibretroDroid::unserializeSRAM(int8_t* data, size_t size) {
