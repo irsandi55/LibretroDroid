@@ -191,6 +191,34 @@ JNIEXPORT jboolean JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_unseri
     }
 }
 
+JNIEXPORT jboolean JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_serializeStateToFile(
+    JNIEnv* env,
+    jclass obj,
+    jstring filePath
+) {
+    try {
+        JniString path(env, filePath);
+        return LibretroDroid::getInstance().serializeStateToFile(path.stdString()) ? JNI_TRUE : JNI_FALSE;
+    } catch (std::exception &exception) {
+        LOGE("Error in serializeStateToFile: %s", exception.what());
+        return JNI_FALSE;
+    }
+}
+
+JNIEXPORT jboolean JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_unserializeStateFromFile(
+    JNIEnv* env,
+    jclass obj,
+    jstring filePath
+) {
+    try {
+        JniString path(env, filePath);
+        return LibretroDroid::getInstance().unserializeStateFromFile(path.stdString()) ? JNI_TRUE : JNI_FALSE;
+    } catch (std::exception &exception) {
+        LOGE("Error in unserializeStateFromFile: %s", exception.what());
+        return JNI_FALSE;
+    }
+}
+
 JNIEXPORT jbyteArray JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_serializeState(
     JNIEnv* env,
     jclass obj
