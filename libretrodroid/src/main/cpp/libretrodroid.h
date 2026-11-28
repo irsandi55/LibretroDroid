@@ -69,6 +69,8 @@ public:
 
     std::pair<int8_t*, size_t> serializeState();
     bool unserializeState(int8_t *data, size_t size);
+    bool serializeStateToFile(const std::string& filePath);
+    bool unserializeStateFromFile(const std::string& filePath);
 
     std::pair<int8_t *, size_t> serializeSRAM();
     jboolean unserializeSRAM(int8_t *data, size_t size);
